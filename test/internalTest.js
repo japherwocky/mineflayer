@@ -2580,18 +2580,28 @@ for (const supportedVersion of mineflayer.testedVersions) {
             await once(bot, 'forcedMove')
 
             const replies = []
+            const confirms = []
             const write = bot._client.write.bind(bot._client)
             bot._client.write = (name, params) => {
               if (name === 'position_look') replies.push(params.y)
+              if (name === 'teleport_confirm') confirms.push(params.teleportId)
               return write(name, params)
             }
             try {
               await new Promise(resolve => bot.once('physicsTick', resolve))
               replies.length = 0
+              confirms.length = 0
               bot._client.emit('position', { ...teleport, y: 90, teleportId: 1 })
               bot._client.emit('position', { ...teleport, y: 100, teleportId: 2 })
               await new Promise(resolve => bot.once('physicsTick', resolve))
-              assert.deepStrictEqual(replies, [90, 100], 'each queued teleport gets its own reply on the same tick')
+              if (bot.supportFeature('teleportUsesOwnPacket')) assert.deepStrictEqual(confirms, [1, 2], 'each queued teleport is confirmed, in arrival order')
+              if (bot.supportFeature('onePositionPerClientTick')) {
+                // 26.3+ disconnects a second position in one client tick: the first teleport's
+                // reply carries it, the second's teleport_confirm carries the second position
+                assert.deepStrictEqual(replies, [90], 'one position per tick, however many teleports were queued')
+              } else {
+                assert.deepStrictEqual(replies, [90, 100], 'each queued teleport gets its own reply on the same tick')
+              }
             } finally {
               bot._client.write = write
             }
